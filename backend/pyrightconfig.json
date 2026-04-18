@@ -1,0 +1,24 @@
+{
+    "executionEnvironments": [
+        {
+            "root": ".",
+            "extraPaths": [
+                ".",
+                "../.venv/Lib/site-packages"
+            ]
+        }
+    ],
+    "include": [
+        "."
+    ],
+    "venvPath": "..",
+    "venv": ".venv",
+    "pythonVersion": "3.12",
+    "pythonPlatform": "Windows",
+    "reportMissingImports": "warning",
+    "reportMissingModuleSource": "none",
+    "extraPaths": [
+        ".",
+        "../.venv/Lib/site-packages"
+    ]
+}

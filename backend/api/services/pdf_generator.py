@@ -1,0 +1,308 @@
+"""
+PDF Generator Service - Generate PDF reports for cases and cause lists.
+"""
+
+import os
+from datetime import datetime, date
+from typing import List, Dict, Optional
+from io import BytesIO
+import logging
+
+logger = logging.getLogger(__name__)
+
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch, cm
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+        PageBreak, HRFlowable,
+    )
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+    logger.warning("reportlab not installed - PDF generation disabled")
+
+OUTPUT_DIR = os.getenv("PDF_OUTPUT_DIR", "./generated_pdfs")
+
+
+class PDFGenerator:
+    """Generate professional PDF reports for court data."""
+
+    def __init__(self):
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        if REPORTLAB_AVAILABLE:
+            self.styles = getSampleStyleSheet()
+            self._setup_custom_styles()
+
+    def _setup_custom_styles(self):
+        """Set up custom paragraph styles."""
+        self.styles.add(ParagraphStyle(
+            name="CourtTitle",
+            parent=self.styles["Title"],
+            fontSize=18,
+            spaceAfter=12,
+            alignment=TA_CENTER,
+            textColor=colors.HexColor("#1a365d"),
+        ))
+        self.styles.add(ParagraphStyle(
+            name="SectionHeader",
+            parent=self.styles["Heading2"],
+            fontSize=14,
+            spaceBefore=12,
+            spaceAfter=6,
+            textColor=colors.HexColor("#2d3748"),
+        ))
+        self.styles.add(ParagraphStyle(
+            name="CaseInfo",
+            parent=self.styles["Normal"],
+            fontSize=10,
+            spaceBefore=2,
+            spaceAfter=2,
+        ))
+        self.styles.add(ParagraphStyle(
+            name="Footer",
+            parent=self.styles["Normal"],
+            fontSize=8,
+            alignment=TA_CENTER,
+            textColor=colors.grey,
+        ))
+
+    def generate_cause_list_pdf(
+        self, cause_list_data: Dict, court_name: str, target_date: date
+    ) -> str:
+        """Generate a formatted cause list PDF."""
+        if not REPORTLAB_AVAILABLE:
+            raise RuntimeError("reportlab is required for PDF generation")
+
+        filename = f"causelist_{court_name.replace(' ', '_')}_{target_date.isoformat()}.pdf"
+        filepath = os.path.join(OUTPUT_DIR, filename)
+        buffer = BytesIO()
+
+        doc = SimpleDocTemplate(
+            buffer, pagesize=A4,
+            leftMargin=1.5 * cm, rightMargin=1.5 * cm,
+            topMargin=2 * cm, bottomMargin=2 * cm,
+        )
+
+        elements = []
+
+        # Title
+        elements.append(Paragraph(court_name.upper(), self.styles["CourtTitle"]))
+        elements.append(Paragraph(
+            f"CAUSE LIST FOR {target_date.strftime('%d %B %Y').upper()}",
+            self.styles["SectionHeader"],
+        ))
+        elements.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#1a365d")))
+        elements.append(Spacer(1, 12))
+
+        # Cause list entries table
+        entries = cause_list_data.get("entries", [])
+        if entries:
+            header = ["S.No", "Case Number", "Petitioner vs Respondent", "Advocate", "Remarks"]
+            table_data = [header]
+
+            for entry in entries:
+                row = [
+                    str(entry.get("serial_number", "")),
+                    entry.get("case_number", ""),
+                    f"{entry.get('petitioner', '')} vs {entry.get('respondent', '')}",
+                    entry.get("advocate_petitioner", "N/A"),
+                    entry.get("remarks", ""),
+                ]
+                table_data.append(row)
+
+            table = Table(table_data, colWidths=[1 * cm, 3 * cm, 6 * cm, 4 * cm, 4 * cm])
+            table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a365d")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTSIZE", (0, 0), (-1, 0), 9),
+                ("FONTSIZE", (0, 1), (-1, -1), 8),
+                ("ALIGN", (0, 0), (0, -1), "CENTER"),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            elements.append(table)
+        else:
+            elements.append(Paragraph("No entries found for this date.", self.styles["CaseInfo"]))
+
+        # Footer
+        elements.append(Spacer(1, 24))
+        elements.append(HRFlowable(width="100%", thickness=1, color=colors.grey))
+        elements.append(Paragraph(
+            f"Generated by Court Automation Suite on {datetime.now().strftime('%d %B %Y at %H:%M')}",
+            self.styles["Footer"],
+        ))
+
+        doc.build(elements)
+
+        with open(filepath, "wb") as f:
+            f.write(buffer.getvalue())
+
+        logger.info(f"Generated cause list PDF: {filepath}")
+        return filepath
+
+    def generate_case_report_pdf(self, case_data: Dict) -> str:
+        """Generate a detailed case report PDF."""
+        if not REPORTLAB_AVAILABLE:
+            raise RuntimeError("reportlab is required for PDF generation")
+
+        case_number = case_data.get("case_number", "unknown")
+        filename = f"case_report_{case_number.replace('/', '_')}.pdf"
+        filepath = os.path.join(OUTPUT_DIR, filename)
+        buffer = BytesIO()
+
+        doc = SimpleDocTemplate(buffer, pagesize=A4)
+        elements = []
+
+        # Header
+        elements.append(Paragraph("CASE REPORT", self.styles["CourtTitle"]))
+        elements.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#1a365d")))
+        elements.append(Spacer(1, 12))
+
+        # Case details table
+        details = [
+            ["Case Number", case_data.get("case_number", "N/A")],
+            ["Court", case_data.get("court_name", "N/A")],
+            ["Case Type", case_data.get("case_type", "N/A")],
+            ["Status", case_data.get("status", "N/A")],
+            ["Petitioner", case_data.get("petitioner", "N/A")],
+            ["Respondent", case_data.get("respondent", "N/A")],
+            ["Petitioner Advocate", case_data.get("advocate_petitioner", "N/A")],
+            ["Respondent Advocate", case_data.get("advocate_respondent", "N/A")],
+            ["Filing Date", str(case_data.get("filing_date", "N/A"))],
+            ["Next Hearing", str(case_data.get("next_hearing_date", "N/A"))],
+            ["Subject", case_data.get("subject", "N/A")],
+        ]
+
+        table = Table(details, colWidths=[5 * cm, 12 * cm])
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#edf2f7")),
+            ("FONTSIZE", (0, 0), (-1, -1), 10),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(table)
+
+        # Hearing history
+        hearings = case_data.get("hearings", [])
+        if hearings:
+            elements.append(Spacer(1, 18))
+            elements.append(Paragraph("HEARING HISTORY", self.styles["SectionHeader"]))
+
+            hearing_header = ["Date", "Court No.", "Judge", "Order Summary", "Next Date"]
+            hearing_data = [hearing_header]
+            for h in hearings:
+                hearing_data.append([
+                    str(h.get("date", "")),
+                    h.get("court_number", ""),
+                    h.get("judge", ""),
+                    h.get("order_summary", "")[:60],
+                    str(h.get("next_date", "")),
+                ])
+
+            h_table = Table(hearing_data, colWidths=[2.5 * cm, 2 * cm, 3 * cm, 6 * cm, 2.5 * cm])
+            h_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2d3748")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
+            ]))
+            elements.append(h_table)
+
+        # Footer
+        elements.append(Spacer(1, 24))
+        elements.append(Paragraph(
+            f"Generated by Court Automation Suite on {datetime.now().strftime('%d %B %Y at %H:%M')}",
+            self.styles["Footer"],
+        ))
+
+        doc.build(elements)
+        with open(filepath, "wb") as f:
+            f.write(buffer.getvalue())
+
+        logger.info(f"Generated case report PDF: {filepath}")
+        return filepath
+
+    def generate_analytics_report_pdf(
+        self, analytics_data: Dict, title: str = "Court Analytics Report"
+    ) -> str:
+        """Generate analytics summary PDF."""
+        if not REPORTLAB_AVAILABLE:
+            raise RuntimeError("reportlab is required for PDF generation")
+
+        filename = f"analytics_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        filepath = os.path.join(OUTPUT_DIR, filename)
+        buffer = BytesIO()
+
+        doc = SimpleDocTemplate(buffer, pagesize=A4)
+        elements = []
+
+        elements.append(Paragraph(title.upper(), self.styles["CourtTitle"]))
+        elements.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#1a365d")))
+        elements.append(Spacer(1, 12))
+
+        # Summary stats
+        if "dashboard" in analytics_data:
+            dash = analytics_data["dashboard"]
+            elements.append(Paragraph("SUMMARY", self.styles["SectionHeader"]))
+            summary_data = [
+                ["Total Cases", str(dash.get("total_cases", 0))],
+                ["Pending", str(dash.get("pending_cases", 0))],
+                ["Disposed", str(dash.get("disposed_cases", 0))],
+                ["Upcoming Hearings", str(dash.get("upcoming_hearings", 0))],
+            ]
+            s_table = Table(summary_data, colWidths=[6 * cm, 6 * cm])
+            s_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#edf2f7")),
+                ("FONTSIZE", (0, 0), (-1, -1), 11),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            elements.append(s_table)
+
+        # Court performance
+        if "performance" in analytics_data:
+            elements.append(Spacer(1, 18))
+            elements.append(Paragraph("COURT PERFORMANCE", self.styles["SectionHeader"]))
+            perf_header = ["Court", "Total", "Disposed", "Pending", "Disposal Rate"]
+            perf_data = [perf_header]
+            for p in analytics_data["performance"]:
+                perf_data.append([
+                    p.get("court", ""),
+                    str(p.get("total_cases", 0)),
+                    str(p.get("disposed", 0)),
+                    str(p.get("pending", 0)),
+                    f"{p.get('disposal_rate', 0)}%",
+                ])
+            p_table = Table(perf_data)
+            p_table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2d3748")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
+            ]))
+            elements.append(p_table)
+
+        elements.append(Spacer(1, 24))
+        elements.append(Paragraph(
+            f"Generated on {datetime.now().strftime('%d %B %Y at %H:%M')}",
+            self.styles["Footer"],
+        ))
+
+        doc.build(elements)
+        with open(filepath, "wb") as f:
+            f.write(buffer.getvalue())
+
+        logger.info(f"Generated analytics PDF: {filepath}")
+        return filepath

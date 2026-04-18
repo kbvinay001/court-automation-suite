@@ -1,0 +1,22 @@
+{
+    "name": "court-automation-suite",
+    "version": "1.0.0",
+    "description": "Full-stack court automation platform for Indian courts",
+    "private": true,
+    "scripts": {
+        "dev:backend": "cd backend && uvicorn main:app --reload --port 8000",
+        "dev:frontend": "cd frontend && npm run dev",
+        "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+        "build": "cd frontend && npm run build",
+        "test": "pytest tests/ -v",
+        "test:coverage": "pytest tests/ --cov=backend --cov-report=html",
+        "lint": "ruff check backend/",
+        "format": "black backend/",
+        "seed": "python scripts/seed_data.py",
+        "docker:up": "cd docker && docker compose up -d --build",
+        "docker:down": "cd docker && docker compose down"
+    },
+    "devDependencies": {
+        "concurrently": "^8.2.2"
+    }
+}

@@ -1,0 +1,53 @@
+{
+    "executionEnvironments": [
+        {
+            "root": "backend",
+            "extraPaths": [
+                "backend"
+            ]
+        },
+        {
+            "root": "ml-models",
+            "extraPaths": [
+                "ml-models"
+            ]
+        },
+        {
+            "root": "whatsapp-assistant",
+            "extraPaths": [
+                "whatsapp-assistant"
+            ]
+        },
+        {
+            "root": "tests",
+            "extraPaths": [
+                "backend",
+                "whatsapp-assistant"
+            ]
+        },
+        {
+            "root": "scripts",
+            "extraPaths": [
+                "backend"
+            ]
+        }
+    ],
+    "include": [
+        "backend",
+        "ml-models",
+        "whatsapp-assistant",
+        "tests",
+        "scripts"
+    ],
+    "venvPath": ".",
+    "venv": ".venv",
+    "pythonVersion": "3.12",
+    "pythonPlatform": "Windows",
+    "reportMissingImports": "warning",
+    "reportMissingModuleSource": "none",
+    "extraPaths": [
+        "backend",
+        "ml-models",
+        "whatsapp-assistant"
+    ]
+}

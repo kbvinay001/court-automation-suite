@@ -1,0 +1,130 @@
+version: "3.9"
+
+services:
+  # ─────────── Backend API ───────────
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: court-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URL=mongodb://mongo:27017
+      - DB_NAME=court_automation
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - PYTHONPATH=/app
+    env_file:
+      - ../.env
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - pdf_data:/app/data/pdfs
+    networks:
+      - court-net
+
+  # ─────────── Frontend ───────────
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    container_name: court-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:8000/api/v1
+    depends_on:
+      - backend
+    networks:
+      - court-net
+
+  # ─────────── Celery Worker ───────────
+  celery-worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: court-worker
+    restart: unless-stopped
+    command: celery -A backend.workers.celery_app worker --loglevel=info --concurrency=4
+    environment:
+      - MONGODB_URL=mongodb://mongo:27017
+      - DB_NAME=court_automation
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    env_file:
+      - ../.env
+    depends_on:
+      - backend
+      - redis
+    networks:
+      - court-net
+
+  # ─────────── Celery Beat (Scheduler) ───────────
+  celery-beat:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: court-beat
+    restart: unless-stopped
+    command: celery -A backend.workers.celery_app beat --loglevel=info
+    environment:
+      - MONGODB_URL=mongodb://mongo:27017
+      - DB_NAME=court_automation
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    env_file:
+      - ../.env
+    depends_on:
+      - redis
+    networks:
+      - court-net
+
+  # ─────────── MongoDB ───────────
+  mongo:
+    image: mongo:7
+    container_name: court-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - court-net
+
+  # ─────────── Redis ───────────
+  redis:
+    image: redis:7-alpine
+    container_name: court-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: redis-server --appendonly yes
+    networks:
+      - court-net
+
+volumes:
+  mongo_data:
+  redis_data:
+  pdf_data:
+
+networks:
+  court-net:
+    driver: bridge

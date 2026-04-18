@@ -1,0 +1,71 @@
+﻿============================= test session starts =============================
+collecting ... collected 55 items
+
+tests/test_api.py::TestValidators::test_validate_case_number_valid PASSED [  1%]
+tests/test_api.py::TestValidators::test_validate_case_number_invalid PASSED [  3%]
+tests/test_api.py::TestValidators::test_validate_phone_number PASSED     [  5%]
+tests/test_api.py::TestValidators::test_validate_email PASSED            [  7%]
+tests/test_api.py::TestValidators::test_sanitize_input PASSED            [  9%]
+tests/test_api.py::TestValidators::test_validate_date_range PASSED       [ 10%]
+tests/test_api.py::TestValidators::test_validate_pagination PASSED       [ 12%]
+tests/test_api.py::TestDataModels::test_case_model_creation PASSED       [ 14%]
+tests/test_api.py::TestDataModels::test_case_status_enum PASSED          [ 16%]
+tests/test_api.py::TestDataModels::test_user_model PASSED                [ 18%]
+tests/test_api.py::TestDataModels::test_causelist_model PASSED           [ 20%]
+tests/test_api.py::TestAPIRoutes::test_scraper_router_exists PASSED      [ 21%]
+tests/test_api.py::TestAPIRoutes::test_causelist_router_exists PASSED    [ 23%]
+tests/test_api.py::TestAPIRoutes::test_analytics_router_exists PASSED    [ 25%]
+tests/test_api.py::TestServices::test_pdf_generator_init PASSED          [ 27%]
+tests/test_api.py::TestServices::test_notification_service_init PASSED   [ 29%]
+tests/test_api.py::TestServices::test_ai_service_init PASSED             [ 30%]
+tests/test_api.py::TestServices::test_scraper_service_init PASSED        [ 32%]
+tests/test_scrapers.py::TestHighCourtScraper::test_init PASSED           [ 34%]
+tests/test_scrapers.py::TestHighCourtScraper::test_private_parse_case_number PASSED [ 36%]
+tests/test_scrapers.py::TestHighCourtScraper::test_private_map_status PASSED [ 38%]
+tests/test_scrapers.py::TestHighCourtScraper::test_private_parse_date PASSED [ 40%]
+tests/test_scrapers.py::TestHighCourtScraper::test_court_urls_available PASSED [ 41%]
+tests/test_scrapers.py::TestHighCourtScraper::test_has_scrape_method PASSED [ 43%]
+tests/test_scrapers.py::TestDistrictCourtScraper::test_init_defaults PASSED [ 45%]
+tests/test_scrapers.py::TestDistrictCourtScraper::test_init_custom PASSED [ 47%]
+tests/test_scrapers.py::TestDistrictCourtScraper::test_private_parse_case_number PASSED [ 49%]
+tests/test_scrapers.py::TestDistrictCourtScraper::test_private_map_status PASSED [ 50%]
+tests/test_scrapers.py::TestDistrictCourtScraper::test_has_state_attribute PASSED [ 52%]
+tests/test_scrapers.py::TestIntelligentScraper::test_init PASSED         [ 54%]
+tests/test_scrapers.py::TestIntelligentScraper::test_get_learned_structures PASSED [ 56%]
+tests/test_scrapers.py::TestIntelligentScraper::test_page_structure PASSED [ 58%]
+tests/test_scrapers.py::TestIntelligentScraper::test_has_scrape_url_method PASSED [ 60%]
+tests/test_scrapers.py::TestCauseListScraper::test_init PASSED           [ 61%]
+tests/test_scrapers.py::TestCauseListScraper::test_supported_courts PASSED [ 63%]
+tests/test_scrapers.py::TestScraperFactory::test_get_high_court_scraper PASSED [ 65%]
+tests/test_scrapers.py::TestScraperFactory::test_get_district_court_scraper PASSED [ 67%]
+tests/test_scrapers.py::TestScraperFactory::test_get_intelligent_scraper_fallback PASSED [ 69%]
+tests/test_whatsapp.py::TestWhatsAppConfig::test_config_defaults PASSED  [ 70%]
+tests/test_whatsapp.py::TestWhatsAppConfig::test_has_command_prefix PASSED [ 72%]
+tests/test_whatsapp.py::TestWhatsAppConfig::test_user_allowed_no_whitelist PASSED [ 74%]
+tests/test_whatsapp.py::TestWhatsAppConfig::test_user_allowed_with_whitelist PASSED [ 76%]
+tests/test_whatsapp.py::TestWhatsAppConfig::test_n8n_config PASSED       [ 78%]
+tests/test_whatsapp.py::TestDriveHandler::test_init PASSED               [ 80%]
+tests/test_whatsapp.py::TestDriveHandler::test_file_icon_folder PASSED   [ 81%]
+tests/test_whatsapp.py::TestDriveHandler::test_file_icon_pdf PASSED      [ 83%]
+tests/test_whatsapp.py::TestDriveHandler::test_file_icon_image PASSED    [ 85%]
+tests/test_whatsapp.py::TestDriveHandler::test_format_size_bytes PASSED  [ 87%]
+tests/test_whatsapp.py::TestDriveHandler::test_format_size_kb PASSED     [ 89%]
+tests/test_whatsapp.py::TestDriveHandler::test_format_size_mb PASSED     [ 90%]
+tests/test_whatsapp.py::TestDriveHandler::test_has_handle_command PASSED [ 92%]
+tests/test_whatsapp.py::TestAIHandler::test_init PASSED                  [ 94%]
+tests/test_whatsapp.py::TestAIHandler::test_has_handle_command PASSED    [ 96%]
+tests/test_whatsapp.py::TestAIHandler::test_has_commands PASSED          [ 98%]
+tests/test_whatsapp.py::TestAIHandler::test_format_list PASSED           [100%]
+
+============================== warnings summary ===============================
+tests/test_api.py::TestDataModels::test_causelist_model
+tests/test_api.py::TestDataModels::test_causelist_model
+  C:\Users\kbhas\AppData\Local\Programs\Python\Python312\Lib\site-packages\pydantic\main.py:171: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+tests/test_api.py::TestServices::test_pdf_generator_init
+  C:\Users\kbhas\AppData\Local\Programs\Python\Python312\Lib\site-packages\reportlab\lib\rl_safe_eval.py:11: DeprecationWarning: ast.NameConstant is deprecated and will be removed in Python 3.14; use ast.Constant instead
+    haveNameConstant = hasattr(ast,'NameConstant')
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================= 55 passed, 3 warnings in 1.83s ========================

@@ -1,0 +1,111 @@
+{
+    "name": "Calendar Sync Workflow",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "calendar-sync",
+                "responseMode": "responseNode"
+            },
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [
+                200,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "functionCode": "const body = $input.first().json.body;\nconst caseNumber = body.case_number || '';\nconst hearingDate = body.hearing_date || '';\nconst courtName = body.court_name || '';\nconst userEmail = body.user_email || '';\n\nreturn [{ json: { caseNumber, hearingDate, courtName, userEmail } }];"
+            },
+            "name": "Parse Event Data",
+            "type": "n8n-nodes-base.function",
+            "typeVersion": 1,
+            "position": [
+                400,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "calendar": "={{ $json.userEmail || 'primary' }}",
+                "start": "={{ $json.hearingDate + 'T10:00:00' }}",
+                "end": "={{ $json.hearingDate + 'T11:00:00' }}",
+                "additionalFields": {
+                    "summary": "⚖️ Court Hearing: {{ $json.caseNumber }}",
+                    "description": "Court hearing for case {{ $json.caseNumber }} at {{ $json.courtName }}.\n\nCase tracked by Court Automation Suite.",
+                    "location": "={{ $json.courtName }}",
+                    "reminders": {
+                        "useDefault": false,
+                        "overrides": [
+                            {
+                                "method": "popup",
+                                "minutes": 60
+                            },
+                            {
+                                "method": "email",
+                                "minutes": 1440
+                            }
+                        ]
+                    }
+                }
+            },
+            "name": "Create Calendar Event",
+            "type": "n8n-nodes-base.googleCalendar",
+            "typeVersion": 1,
+            "position": [
+                600,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={{ JSON.stringify({ success: true, event_id: $json.id || 'created', message: 'Calendar event created for ' + $json.caseNumber }) }}"
+            },
+            "name": "Respond Success",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1,
+            "position": [
+                800,
+                300
+            ]
+        }
+    ],
+    "connections": {
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Parse Event Data",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Parse Event Data": {
+            "main": [
+                [
+                    {
+                        "node": "Create Calendar Event",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Create Calendar Event": {
+            "main": [
+                [
+                    {
+                        "node": "Respond Success",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}
