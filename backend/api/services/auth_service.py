@@ -61,20 +61,45 @@ def decode_token(token: str) -> Optional[Dict[str, Any]]:
 class AuthService:
     """Handles user registration, authentication, and token management."""
 
+    # ── In-memory fallback store (used when MongoDB is unavailable) ──────────
+    _demo_users: dict = {}   # email -> user_doc
+
+    def _db_available(self) -> bool:
+        from utils.database import get_db  # type: ignore[import]
+        return get_db() is not None
+
     async def register(self, user_data: UserCreate) -> Dict[str, Any]:
         """Register a new user."""
-        from utils.database import find_one, insert_one  # type: ignore[import]
+        if self._db_available():
+            return await self._register_db(user_data)
+        return self._register_memory(user_data)
 
-        # Check if user already exists
+    async def _register_db(self, user_data: UserCreate) -> Dict[str, Any]:
+        from utils.database import find_one, insert_one  # type: ignore[import]
         existing = await find_one("users", {"email": user_data.email})
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="An account with this email already exists",
             )
+        user_doc = self._build_user_doc(user_data)
+        await insert_one("users", user_doc)
+        logger.info(f"User registered (DB): {user_data.email}")
+        return self._token_response(user_data.email, user_data.full_name, user_data.role.value)
 
-        # Create user document
-        user_doc = {
+    def _register_memory(self, user_data: UserCreate) -> Dict[str, Any]:
+        if user_data.email in AuthService._demo_users:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An account with this email already exists",
+            )
+        user_doc = self._build_user_doc(user_data)
+        AuthService._demo_users[user_data.email] = user_doc
+        logger.info(f"User registered (in-memory demo mode): {user_data.email}")
+        return self._token_response(user_data.email, user_data.full_name, user_data.role.value)
+
+    def _build_user_doc(self, user_data: UserCreate) -> dict:
+        return {
             "email": user_data.email,
             "full_name": user_data.full_name,
             "password_hash": hash_password(user_data.password),
@@ -98,83 +123,74 @@ class AuthService:
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
-        result = await insert_one("users", user_doc)
-        logger.info(f"User registered: {user_data.email}")
-
-        # Generate token
-        token = create_access_token({"sub": user_data.email, "role": user_data.role.value})
-
+    def _token_response(self, email: str, full_name: str, role: str) -> Dict[str, Any]:
+        token = create_access_token({"sub": email, "role": role})
         return {
             "access_token": token,
             "token_type": "bearer",
             "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-            "user": {
-                "email": user_data.email,
-                "full_name": user_data.full_name,
-                "role": user_data.role.value,
-            },
+            "user": {"email": email, "full_name": full_name, "role": role},
         }
 
     async def authenticate(self, login_data: UserLogin) -> Dict[str, Any]:
         """Authenticate a user and return a JWT token."""
+        if self._db_available():
+            return await self._authenticate_db(login_data)
+        return self._authenticate_memory(login_data)
+
+    async def _authenticate_db(self, login_data: UserLogin) -> Dict[str, Any]:
         from utils.database import find_one, update_one  # type: ignore[import]
-
         user = await find_one("users", {"email": login_data.email})
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password",
-            )
-
-        if not verify_password(login_data.password, user.get("password_hash", "")):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password",
-            )
-
+        if not user or not verify_password(login_data.password, user.get("password_hash", "")):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
         if not user.get("is_active", True):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Account is deactivated",
-            )
-
-        # Update last login
-        await update_one(
-            "users",
-            {"email": login_data.email},
-            {"last_login": datetime.now(timezone.utc).isoformat()},
-        )
-
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is deactivated")
+        await update_one("users", {"email": login_data.email}, {"last_login": datetime.now(timezone.utc).isoformat()})
         token = create_access_token({"sub": user["email"], "role": user.get("role", "advocate")})
-        logger.info(f"User logged in: {login_data.email}")
-
+        logger.info(f"User logged in (DB): {login_data.email}")
         return {
             "access_token": token,
             "token_type": "bearer",
             "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-            "user": {
-                "email": user["email"],
-                "full_name": user.get("full_name", ""),
-                "role": user.get("role", "advocate"),
-            },
+            "user": {"email": user["email"], "full_name": user.get("full_name", ""), "role": user.get("role", "advocate")},
+        }
+
+    def _authenticate_memory(self, login_data: UserLogin) -> Dict[str, Any]:
+        user = AuthService._demo_users.get(login_data.email)
+        if not user or not verify_password(login_data.password, user.get("password_hash", "")):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+        if not user.get("is_active", True):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is deactivated")
+        token = create_access_token({"sub": user["email"], "role": user.get("role", "advocate")})
+        logger.info(f"User logged in (in-memory demo mode): {login_data.email}")
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            "user": {"email": user["email"], "full_name": user.get("full_name", ""), "role": user.get("role", "advocate")},
         }
 
     async def get_user_profile(self, email: str) -> Optional[Dict[str, Any]]:
         """Get user profile by email."""
-        from utils.database import find_one  # type: ignore[import]
-
-        user = await find_one("users", {"email": email})
+        if self._db_available():
+            from utils.database import find_one  # type: ignore[import]
+            user = await find_one("users", {"email": email})
+        else:
+            user = AuthService._demo_users.get(email)
         if user:
+            user = dict(user)
             user.pop("password_hash", None)
             user.pop("_id", None)
         return user
 
     async def update_profile(self, email: str, updates: dict) -> Optional[Dict[str, Any]]:
         """Update user profile."""
-        from utils.database import update_one, find_one  # type: ignore[import]
-
         updates["updated_at"] = datetime.now(timezone.utc).isoformat()
-        await update_one("users", {"email": email}, {"$set": updates})
+        if self._db_available():
+            from utils.database import update_one  # type: ignore[import]
+            await update_one("users", {"email": email}, {"$set": updates})
+        elif email in AuthService._demo_users:
+            AuthService._demo_users[email].update(updates)
         return await self.get_user_profile(email)
 
 

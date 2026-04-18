@@ -21,7 +21,11 @@ async def init_db():
     """Initialize MongoDB connection and create indexes."""
     global _client, _db
     try:
-        _client = AsyncIOMotorClient(MONGO_URL)
+        _client = AsyncIOMotorClient(
+            MONGO_URL,
+            serverSelectionTimeoutMS=3000,  # fail fast if DB unavailable
+            connectTimeoutMS=3000,
+        )
         _db = _client[DB_NAME]
 
         # Create indexes for common queries
@@ -39,8 +43,12 @@ async def init_db():
 
         logger.info(f"✅ Connected to MongoDB: {DB_NAME}")
     except Exception as e:
-        logger.error(f"❌ MongoDB connection failed: {e}")
-        raise
+        logger.warning(
+            f"⚠ MongoDB unavailable — starting in DEGRADED mode (DB features disabled): {e}"
+        )
+        _client = None
+        _db = None
+        # Do NOT raise — allow the server to start without DB
 
 
 async def close_db():
