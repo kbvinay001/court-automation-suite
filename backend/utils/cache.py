@@ -60,8 +60,11 @@ def get_cache():
 
 
 def _make_key(prefix: str, identifier: str) -> str:
-    """Generate a cache key with prefix and hashed identifier."""
-    key_hash = hashlib.md5(identifier.encode()).hexdigest()[:12]  # type: ignore[index]
+    """Generate a cache key with prefix and hashed identifier.
+
+    MD5 is used purely as a non-cryptographic key shortener (nosec B324).
+    """
+    key_hash = hashlib.md5(identifier.encode(), usedforsecurity=False).hexdigest()[:12]  # nosec B324
     return f"court:{prefix}:{key_hash}"
 
 

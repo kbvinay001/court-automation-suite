@@ -1,0 +1,273 @@
+name: CI — Court Automation Suite
+
+on:
+  push:
+    branches: ["main", "develop", "feature/**", "fix/**"]
+  pull_request:
+    branches: ["main", "develop"]
+  workflow_dispatch:        # allow manual trigger
+
+# ── Concurrency: cancel in-progress runs on same branch ──────────────────────
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION:   "20"
+
+# ═════════════════════════════════════════════════════════════════════════════
+jobs:
+# ── Job 1: Python lint + unit tests + security scan ──────────────────────────
+  backend:
+    name: "Backend — lint / test / security"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      # MongoDB for integration tests
+      mongo:
+        image: mongo:7
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      # Redis for cache tests
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt bandit
+
+      # ── Secrets scan (Task #23) ────────────────────────────────────────────
+      - name: Secrets scan
+        run: python scripts/scan_secrets.py --severity HIGH
+        # Fail the build if ANY high-severity secret is found in source
+
+      # ── Bandit security scan (Task #21) ───────────────────────────────────
+      - name: Bandit security scan
+        run: |
+          bandit -r backend/ \
+            --severity-level medium \
+            --confidence-level medium \
+            --skip B311,B101 \
+            -f txt
+        # B311 = random (intentional for delay jitter)
+        # B101 = assert (cleaned up, but skip for any remaining test asserts)
+
+      # ── Unit + integration tests (Task #20) ───────────────────────────────
+      - name: Run pytest
+        env:
+          MONGODB_URL: mongodb://localhost:27017
+          DB_NAME:     court_automation_test
+          REDIS_URL:   redis://localhost:6379/0
+          JWT_SECRET:  ${{ secrets.JWT_SECRET || 'ci-test-secret-at-least-32-chars-long' }}
+          SCRAPER_MIN_DELAY_MS: "100"   # speed up scraper tests
+          SCRAPER_MAX_DELAY_MS: "200"
+          CAPTCHA_STRATEGY: "skip"      # no live CAPTCHA attempts in CI
+        run: |
+          pytest tests/ \
+            -v \
+            --tb=short \
+            --cov=backend \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            -x            # stop on first failure
+        working-directory: .
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+# ── Job 2: Frontend type-check + audit ────────────────────────────────────────
+  frontend:
+    name: "Frontend — typecheck / audit"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      # ── npm audit (Task #22) — fail on HIGH severity only ─────────────────
+      - name: npm security audit
+        run: npm audit --audit-level=high
+        working-directory: frontend
+        # High-severity vulns in runtime deps will fail CI.
+        # Dev-tool vulns (eslint internals) are excluded via --audit-level=high.
+
+      - name: TypeScript type-check
+        run: npx tsc --noEmit
+        working-directory: frontend
+
+      - name: ESLint
+        run: npm run lint
+        working-directory: frontend
+
+# ── Job 3: Playwright E2E tests (Task #20) ────────────────────────────────────
+  e2e:
+    name: "E2E — Playwright"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [backend, frontend]    # only run E2E if unit tests pass
+
+    services:
+      mongo:
+        image: mongo:7
+        ports: ["27017:27017"]
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Backend ────────────────────────────────────────────────────────────
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+
+      - name: Start FastAPI backend
+        env:
+          MONGODB_URL:  mongodb://localhost:27017
+          DB_NAME:      court_automation_e2e
+          REDIS_URL:    redis://localhost:6379/0
+          JWT_SECRET:   ${{ secrets.JWT_SECRET || 'e2e-test-secret-at-least-32-chars' }}
+          CAPTCHA_STRATEGY: skip
+          SCRAPER_MIN_DELAY_MS: "100"
+          SCRAPER_MAX_DELAY_MS: "200"
+        run: |
+          cd backend
+          uvicorn main:app --host 0.0.0.0 --port 8000 &
+          # Wait for backend to be ready
+          for i in $(seq 1 20); do
+            if curl -sf http://localhost:8000/health; then
+              echo "Backend ready"
+              break
+            fi
+            echo "Waiting for backend... ($i/20)"
+            sleep 2
+          done
+
+      # ── Frontend ───────────────────────────────────────────────────────────
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+        run: npm run build
+        working-directory: frontend
+
+      - name: Start Next.js frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+        run: |
+          npm start &
+          npx wait-on http://localhost:3000 --timeout 30000
+        working-directory: frontend
+
+      # ── Playwright ─────────────────────────────────────────────────────────
+      - name: Install Playwright + browsers
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+        working-directory: e2e
+
+      - name: Run Playwright E2E tests
+        env:
+          E2E_BACKEND_URL:   http://localhost:8000
+          E2E_FRONTEND_URL:  http://localhost:3000
+          E2E_USER_EMAIL:    ${{ secrets.E2E_USER_EMAIL    || 'ci.e2e@courtautomation.in' }}
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD || 'CiTest@1234!' }}
+        run: npx playwright test --project=chromium
+        working-directory: e2e
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()    # upload even if tests fail
+        with:
+          name: playwright-report
+          path: e2e/playwright-report/
+          retention-days: 14
+
+      - name: Upload Playwright screenshots on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-screenshots
+          path: e2e/test-results/
+          retention-days: 7
+
+# ── Job 4: Notify on main branch failures ────────────────────────────────────
+  notify-failure:
+    name: Notify on failure
+    runs-on: ubuntu-latest
+    needs: [backend, frontend, e2e]
+    if: failure() && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Log failure summary
+        run: |
+          echo "CI FAILED on main branch!"
+          echo "Commit: ${{ github.sha }}"
+          echo "Author: ${{ github.actor }}"
+          echo "Message: ${{ github.event.head_commit.message }}"

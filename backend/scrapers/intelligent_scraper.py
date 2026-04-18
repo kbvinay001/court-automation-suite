@@ -90,8 +90,8 @@ class IntelligentScraper:
         }
 
     def _get_url_key(self, url: str) -> str:
-        """Generate a unique key for a URL pattern."""
-        return hashlib.md5(url.encode()).hexdigest()[:12]  # type: ignore[index]
+        """Generate a unique key for a URL pattern (non-cryptographic use)."""
+        return hashlib.md5(url.encode(), usedforsecurity=False).hexdigest()[:12]  # nosec B324
 
     async def scrape_url(self, url: str, target_fields: Optional[List[str]] = None) -> Dict:  # type: ignore[return-value]
         """
